@@ -26,7 +26,7 @@ if (process.env.TELEGRAM_KEY) {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36',
         'Cookie': `_yatri_session=${cookie}`
       },
-      maxRedirects: 1
+      maxRedirects: 2
     }, function (error, response) {
       try {
         if (error) return reject(error);
@@ -87,17 +87,11 @@ if (process.env.TELEGRAM_KEY) {
         .then(async dates => {
           if (dates.length > 0) {
             await ctx.reply('Thanks 😋')
-            db.set(`users.${ctx.update.message.chat.id}`, {
-              cookie: ctx.update.message.text,
-              dates
-            })
-            await ctx.reply(`Connected successfully! You have ${dates.length} dates available:`)
-            dates.forEach(({
-              date
-            }) => {
-              ctx.reply(date)
-            })
-            ctx.reply('https://ais.usvisa-info.com/en-br/niv/users/sign_in')
+            db.set(`users.${ctx.update.message.chat.id}.cookie`, ctx.update.message.text)
+            db.set(`users.${ctx.update.message.chat.id}.dates`, dates)
+            await ctx.reply(`Connected successfully! You have ${dates.length} dates available.`)
+            ctx.reply(`You can reschedule at https://ais.usvisa-info.com/en-br/niv/users/sign_in`)
+            await ctx.reply(`From now on if I find any date that is available sooner than ${new Date(db.get(`users.${ctx.update.message.chat.id}.currentDate`)).toLocaleString()} I will let you know 😉`)
           } else {
             ctx.reply('Sorry, no dates available 😢')
           }
@@ -148,7 +142,9 @@ if (process.env.TELEGRAM_KEY) {
         getId(currUser.cookie, nextUserCheck)
           .then(getLastDates(currUser.cookie))
           .then(async dates => {
-            if (new Date(currUser.currentDate).getTime() < new Date(dates[0].date).getTime()) {
+            const dateEl = dates[0].date.split('-')
+            const lowerDate = new Date(dateEl[0], dateEl[1] - 1, dateEl[2])
+            if (lowerDate.getTime() < new Date(currUser.currentDate).getTime()) {
               await bot.telegram.sendMessage(nextUserCheck, `You have ${dates.length} dates available:`)
               dates.forEach(({
                 date
