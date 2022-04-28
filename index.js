@@ -57,7 +57,7 @@ if (process.env.TELEGRAM_KEY) {
     });
   })
 
-  const getLastDates = (cookie, limit = 5) => (id) => new Promise((resolve, reject) => {
+  const getLastDates = (cookie, id, limit = 5) => new Promise((resolve, reject) => {
     request({
       'method': 'GET',
       'url': `https://ais.usvisa-info.com/en-br/niv/schedule/${id}/appointment/days/128.json?appointments\\[expedite\\]=false`,
@@ -81,9 +81,13 @@ if (process.env.TELEGRAM_KEY) {
   bot.start((ctx) => ctx.reply(strings.SEND_COOKIE))
 
   bot.on('text', async (ctx) => {
-    if (ctx.update.message.reply_to_message?.text === strings.SEND_COOKIE || ctx.update.message.reply_to_message?.text === strings.BAD_COOKIE || ctx.update.message?.text.length > 30) {
+    //If the user sends a message bigger than 30 caracters, it's probably a cookie.
+    if (ctx.update.message?.text.length > 30) {
       getId(ctx.update.message.text, ctx.update.message.chat.id)
-        .then(getLastDates(ctx.update.message.text))
+        .then(id => {
+          db.set(`users.${ctx.update.message.chat.id}.id`, id)
+          return getLastDates(ctx.update.message.text, id, 10)
+        })
         .then(async dates => {
           if (dates.length > 0) {
             await ctx.reply('Thanks 😋')
@@ -91,29 +95,27 @@ if (process.env.TELEGRAM_KEY) {
             db.set(`users.${ctx.update.message.chat.id}.dates`, dates)
             await ctx.reply(`Connected successfully! You have ${dates.length} dates available.`)
             ctx.reply(`You can reschedule at https://ais.usvisa-info.com/en-br/niv/users/sign_in`)
-            await ctx.reply(`From now on if I find any date that is available sooner than ${new Date(db.get(`users.${ctx.update.message.chat.id}.currentDate`)).toLocaleString()} I will let you know 😉`)
+            await ctx.reply(`From now on if I find any date that is available sooner than ${new Date(db.get(`users.${ctx.update.message.chat.id}.currentDate`)).toLocaleDateString()} I will let you know 😉`)
           } else {
             ctx.reply('Sorry, no dates available 😢')
           }
         }).catch(err => {
-          console.log(err)
           ctx.reply(strings.BAD_COOKIE)
         })
     }
+
     if (ctx.update.message.text === '/check') {
       await ctx.reply('Connecting...')
       const currUser = db.get(`users.${ctx.update.message.chat.id}`)
-      getId(currUser.cookie, ctx.update.message.chat.id)
-        .then(getLastDates(currUser.cookie))
+        .then(getLastDates(currUser.cookie, currUser.id, 10))
         .then(async dates => {
           if (dates.length > 0) {
             db.set(`users.${ctx.update.message.chat.id}.dates`, dates)
             await ctx.reply(`You have ${dates.length} dates available:`)
-            dates.forEach(({
-              date
-            }) => {
-              ctx.reply(date)
-            })
+            ctx.reply(dates.reduce((acc, curr) => {
+              acc += `${new Date(curr.date).toLocaleDateString()} - ${curr.time}\n`
+              return acc
+            }, ''))
             ctx.reply('https://ais.usvisa-info.com/en-br/niv/users/sign_in')
           } else {
             ctx.reply('Sorry, no dates available 😢')
@@ -124,6 +126,7 @@ if (process.env.TELEGRAM_KEY) {
           ctx.reply(strings.BAD_COOKIE)
         })
     }
+
   })
 
   bot.launch().then(() => {
@@ -139,22 +142,19 @@ if (process.env.TELEGRAM_KEY) {
       const currUser = users[nextUserCheck]
       console.log(`Checking ${nextUserCheck}`)
       if (currUser?.cookie) {
-        getId(currUser.cookie, nextUserCheck)
-          .then(getLastDates(currUser.cookie))
+          getLastDates(currUser.cookie, currUser.id)
           .then(async dates => {
             const dateEl = dates[0].date.split('-')
             const lowerDate = new Date(dateEl[0], dateEl[1] - 1, dateEl[2])
             if (lowerDate.getTime() < new Date(currUser.currentDate).getTime()) {
               await bot.telegram.sendMessage(nextUserCheck, `You have ${dates.length} dates available:`)
-              dates.forEach(({
-                date
-              }) => {
-                bot.telegram.sendMessage(nextUserCheck, date)
-              })
+              bot.telegram.sendMessage(dates.reduce((acc, curr) => {
+                acc += `${new Date(curr.date).toLocaleDateString()} - ${curr.time}\n`
+                return acc
+              }, ''))
               db.set(`users.${nextUserCheck}.dates`, dates)
             }
           }).catch(err => {
-            console.log(err)
             bot.telegram.sendMessage(nextUserCheck, `Your cookie is invalid. Please, send it again.`)
             db.delete(`users.${nextUserCheck}.cookie`)
           })
