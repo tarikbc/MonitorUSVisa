@@ -78,6 +78,74 @@ if (process.env.TELEGRAM_KEY) {
 
   })
 
+  const lookupChanges = () => {
+    const users = db.get('users')
+    const usersKeys = Object.keys(users)
+    const nextUserCheck = db.get('nextUserCheck') || (usersKeys.length > 0 ? usersKeys[0] : false)
+    if (nextUserCheck) {
+      const currUser = users[nextUserCheck]
+      console.log(`Checking ${nextUserCheck}`)
+      if (currUser?.cookie) {
+        getLastDates(currUser.cookie, currUser.id, 15)
+          .then(async dates => {
+
+            //Find date closer to the desiredDate or the lowest date
+
+            let bestDateObj = dates[0]
+            let notify = false
+
+            if(currUser.desiredDate) {
+              const desiredDate = new Date(currUser.desiredDate)
+
+              bestDateObj = dates.reduce((best, date) => {
+                const currDate = new Date(date.date)
+                const bestDate = new Date(best.date)
+                const diff = Math.abs(currDate - desiredDate)
+                const bestDiff = Math.abs(bestDate - desiredDate)
+                return diff < bestDiff ? date : best
+              })
+            }
+
+            const bestDate = new Date(bestDateObj.date)
+            const currDate = new Date(currUser.currentDate)
+
+
+            if(currUser.desiredDate){
+              //Check if bestDate is closer to the desiredDate than the currentDate
+
+              const desiredDate = new Date(currUser.desiredDate)
+              const diff = Math.abs(bestDate - desiredDate)
+              const currDiff = Math.abs(currDate - desiredDate)
+              if (diff < currDiff) {
+                notify = true
+              }
+            }else{
+              notify = bestDate <= currDate
+            }
+
+            if (notify) {
+              await bot.telegram.sendMessage(nextUserCheck, `Hey! I just found a date that fits you better than the current one.\nThose are the ${dates.length} dates available:`)
+              bot.telegram.sendMessage(nextUserCheck, dates.reduce((acc, curr) => {
+                acc += `- ${new Date(curr.date).toLocaleDateString()}\n`
+                return acc
+              }, ''))
+              db.set(`users.${nextUserCheck}.dates`, dates)
+            }
+          }).catch(err => {
+            console.log(err)
+            bot.telegram.sendMessage(nextUserCheck, `Your cookie is invalid. Please, send it again.`)
+            db.delete(`users.${nextUserCheck}.cookie`)
+          })
+      } else {
+        console.log('No cookie')
+      }
+      const nextUser = usersKeys.indexOf(nextUserCheck) + 1
+      db.set('nextUserCheck', usersKeys[nextUser] || usersKeys[0])
+    } else {
+      console.log('No users to check')
+    }
+  }
+
   bot.start((ctx) => ctx.reply(strings.SEND_COOKIE))
 
   bot.on('text', async (ctx) => {
@@ -93,9 +161,16 @@ if (process.env.TELEGRAM_KEY) {
             await ctx.reply('Thanks 😋')
             db.set(`users.${ctx.update.message.chat.id}.cookie`, ctx.update.message.text)
             db.set(`users.${ctx.update.message.chat.id}.dates`, dates)
-            await ctx.reply(`Connected successfully! You have ${dates.length} dates available.`)
+            await ctx.reply(`Connected successfully! You have ${dates.length} dates available.\n
+Every time you wanna check which dates are available, just send me /check 🙃\n
+If you want to set an specific date, you can send me /setdate with the date in the format dd/mm/yyyy.`)
             ctx.reply(`You can reschedule at https://ais.usvisa-info.com/en-br/niv/users/sign_in`)
-            await ctx.reply(`From now on if I find any date that is available sooner than ${new Date(db.get(`users.${ctx.update.message.chat.id}.currentDate`)).toLocaleDateString()} I will let you know 😉`)
+            const desiredDate = new Date(db.get(`users.${ctx.update.message.chat.id}.desiredDate`))
+            if(!isNaN(desiredDate.getTime())){
+              await ctx.reply(`From now on if I find any date that is available closer to ${desiredDate.toLocaleDateString()} I will let you know 😉`)
+            }else{
+              await ctx.reply(`From now on if I find any date that is available sooner than ${new Date(db.get(`users.${ctx.update.message.chat.id}.currentDate`)).toLocaleDateString()} I will let you know 😉`)
+            }
           } else {
             ctx.reply('Sorry, no dates available 😢')
           }
@@ -107,13 +182,13 @@ if (process.env.TELEGRAM_KEY) {
     if (ctx.update.message.text === '/check') {
       await ctx.reply('Connecting...')
       const currUser = db.get(`users.${ctx.update.message.chat.id}`)
-        .then(getLastDates(currUser.cookie, currUser.id, 10))
+        getLastDates(currUser.cookie, currUser.id, 10)
         .then(async dates => {
           if (dates.length > 0) {
             db.set(`users.${ctx.update.message.chat.id}.dates`, dates)
             await ctx.reply(`You have ${dates.length} dates available:`)
             ctx.reply(dates.reduce((acc, curr) => {
-              acc += `${new Date(curr.date).toLocaleDateString()} - ${curr.time}\n`
+              acc += `- ${new Date(curr.date).toLocaleDateString()}\n`
               return acc
             }, ''))
             ctx.reply('https://ais.usvisa-info.com/en-br/niv/users/sign_in')
@@ -127,46 +202,21 @@ if (process.env.TELEGRAM_KEY) {
         })
     }
 
+    if (ctx.update.message.text.indexOf('/setdate') === 0) {
+      const [day, month, year] = ctx.update.message.text.split(' ')[1].split('/').map(el => Number(el))
+      const desiredDate = new Date(`${year}-${month}-${day}`)
+      if (!isNaN(desiredDate.getTime())) {
+        db.set(`users.${ctx.update.message.chat.id}.desiredDate`, desiredDate.toISOString())
+        await ctx.reply(`Nice! I will check for dates that are available closer to ${desiredDate.toLocaleDateString()}`)
+      } else {
+        await ctx.reply('Please, send me the date in the format dd/mm/yyyy')
+      }
+    }
   })
 
   bot.launch().then(() => {
     console.log('Bot Started.')
   })
-
-
-  const lookupChanges = () => {
-    const users = db.get('users')
-    const usersKeys = Object.keys(users)
-    const nextUserCheck = db.get('nextUserCheck') || (usersKeys.length > 0 ? usersKeys[0] : false)
-    if (nextUserCheck) {
-      const currUser = users[nextUserCheck]
-      console.log(`Checking ${nextUserCheck}`)
-      if (currUser?.cookie) {
-          getLastDates(currUser.cookie, currUser.id)
-          .then(async dates => {
-            const dateEl = dates[0].date.split('-')
-            const lowerDate = new Date(dateEl[0], dateEl[1] - 1, dateEl[2])
-            if (lowerDate.getTime() < new Date(currUser.currentDate).getTime()) {
-              await bot.telegram.sendMessage(nextUserCheck, `You have ${dates.length} dates available:`)
-              bot.telegram.sendMessage(dates.reduce((acc, curr) => {
-                acc += `${new Date(curr.date).toLocaleDateString()} - ${curr.time}\n`
-                return acc
-              }, ''))
-              db.set(`users.${nextUserCheck}.dates`, dates)
-            }
-          }).catch(err => {
-            bot.telegram.sendMessage(nextUserCheck, `Your cookie is invalid. Please, send it again.`)
-            db.delete(`users.${nextUserCheck}.cookie`)
-          })
-      } else {
-        console.log('No cookie')
-      }
-      const nextUser = usersKeys.indexOf(nextUserCheck) + 1
-      db.set('nextUserCheck', usersKeys[nextUser] || usersKeys[0])
-    } else {
-      console.log('No users to check')
-    }
-  }
 
   setInterval(lookupChanges, 1000 * 60 * (process.env.REFRESH_INTERVAL || 1)) // 1 minute
 } else {
