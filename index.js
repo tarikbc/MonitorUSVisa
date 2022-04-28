@@ -169,7 +169,7 @@ if (process.env.TELEGRAM_KEY) {
     }
   }
 
-  setInterval(lookupChanges, 1000 * 60 * 1) // 1 minute
+  setInterval(lookupChanges, 1000 * 60 * (process.env.REFRESH_INTERVAL || 1)) // 1 minute
 } else {
   console.log('Please define a valid telegram key in .env file.')
 }
