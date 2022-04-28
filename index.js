@@ -12,7 +12,6 @@ dotenv.config();
 import express from 'express'
 const app = express();
 
-
 if (process.env.TELEGRAM_KEY) {
   const bot = new Telegraf(process.env.TELEGRAM_KEY).catch(err => console.log(err))
 
@@ -92,48 +91,52 @@ if (process.env.TELEGRAM_KEY) {
       if (currUser?.cookie) {
         getLastDates(currUser.cookie, currUser.id, nextUserCheck, 15)
           .then(async dates => {
+            if(dates.length > 0){
 
-            //Find date closer to the desiredDate or the lowest date
-
-            let bestDateObj = dates[0]
-            let notify = false
-
-            if(currUser.desiredDate) {
-              const desiredDate = new Date(currUser.desiredDate)
-
-              bestDateObj = dates.reduce((best, date) => {
-                const currDate = new Date(date.date)
-                const bestDate = new Date(best.date)
-                const diff = Math.abs(currDate - desiredDate)
-                const bestDiff = Math.abs(bestDate - desiredDate)
-                return bestDiff < diff ? best : date
-              })
-            }
-
-            const bestDate = new Date(bestDateObj.date)
-            const currDate = new Date(currUser.currentDate)
-
-
-            if(currUser.desiredDate){
-              //Check if bestDate is closer to the desiredDate than the currentDate
-
-              const desiredDate = new Date(currUser.desiredDate)
-              const diff = Math.abs(bestDate - desiredDate)
-              const currDiff = Math.abs(currDate - desiredDate)
-              if (diff < currDiff) {
-                notify = true
+              //Find date closer to the desiredDate or the lowest date
+  
+              let bestDateObj = dates[0]
+              let notify = false
+  
+              if(currUser.desiredDate) {
+                const desiredDate = new Date(currUser.desiredDate)
+  
+                bestDateObj = dates.reduce((best, date) => {
+                  const currDate = new Date(date.date)
+                  const bestDate = new Date(best.date)
+                  const diff = Math.abs(currDate - desiredDate)
+                  const bestDiff = Math.abs(bestDate - desiredDate)
+                  return bestDiff < diff ? best : date
+                })
+              }
+  
+              const bestDate = new Date(bestDateObj.date)
+              const currDate = new Date(currUser.currentDate)
+  
+  
+              if(currUser.desiredDate){
+                //Check if bestDate is closer to the desiredDate than the currentDate
+  
+                const desiredDate = new Date(currUser.desiredDate)
+                const diff = Math.abs(bestDate - desiredDate)
+                const currDiff = Math.abs(currDate - desiredDate)
+                if (diff < currDiff) {
+                  notify = true
+                }
+              }else{
+                notify = bestDate <= currDate
+              }
+  
+              if (notify && currUser.lastBestDate !== bestDateObj.date) {
+                db.set(`users.${nextUserCheck}.lastBestDate`, bestDateObj.date)
+                await bot.telegram.sendMessage(nextUserCheck, `Hey! I just found a date (${bestDateObj.date}) that fits you better than the current one (${currDate.toISOString().split('T')[0]}). \nThose are the ${dates.length} dates available:`)
+                bot.telegram.sendMessage(nextUserCheck, dates.reduce((acc, curr) => {
+                  acc += `- ${new Date(curr.date).toLocaleDateString()}\n`
+                  return acc
+                }, ''))
               }
             }else{
-              notify = bestDate <= currDate
-            }
-
-            if (notify && currUser.lastBestDate !== bestDateObj.date) {
-              db.set(`users.${nextUserCheck}.lastBestDate`, bestDateObj.date)
-              await bot.telegram.sendMessage(nextUserCheck, `Hey! I just found a date (${bestDateObj.date}) that fits you better than the current one (${currDate.toISOString().split('T')[0]}). \nThose are the ${dates.length} dates available:`)
-              bot.telegram.sendMessage(nextUserCheck, dates.reduce((acc, curr) => {
-                acc += `- ${new Date(curr.date).toLocaleDateString()}\n`
-                return acc
-              }, ''))
+              console.log(`${nextUserCheck} has no dates`)
             }
           }).catch(err => {
             console.log(err)
@@ -170,7 +173,7 @@ If you want to set an specific date, you can send me /setdate with the date in t
             ctx.reply(`You can reschedule at https://ais.usvisa-info.com/en-br/niv/users/sign_in`)
             const desiredDate = new Date(db.get(`users.${ctx.update.message.chat.id}.desiredDate`))
             if(!isNaN(desiredDate.getTime())){
-              await ctx.reply(`From now on if I find any date that is available closer to ${desiredDate.toISOString()} I will let you know 😉`)
+              await ctx.reply(`From now on if I find any date that is available closer to ${desiredDate.toLocaleDateString()} I will let you know 😉`)
             }else{
               await ctx.reply(`From now on if I find any date that is available sooner than ${new Date(db.get(`users.${ctx.update.message.chat.id}.currentDate`)).toLocaleDateString()} I will let you know 😉`)
             }
