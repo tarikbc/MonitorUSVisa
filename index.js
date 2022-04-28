@@ -9,9 +9,12 @@ const {
 import dotenv from 'dotenv';
 import strings from './strings.js';
 dotenv.config();
+import express from 'express'
+const app = express();
+
 
 if (process.env.TELEGRAM_KEY) {
-  const bot = new Telegraf(process.env.TELEGRAM_KEY)
+  const bot = new Telegraf(process.env.TELEGRAM_KEY).catch(err => console.log(err))
 
   const db = new Database();
 
@@ -173,3 +176,13 @@ if (process.env.TELEGRAM_KEY) {
 } else {
   console.log('Please define a valid telegram key in .env file.')
 }
+
+app.get('/', (req, res) => {
+  const name = process.env.NAME || 'World';
+  res.send(`Hello ${name}!`);
+});
+
+const port = parseInt(process.env.PORT) || 8080;
+app.listen(port, () => {
+  console.log(`Server listening on port ${port}`);
+});
