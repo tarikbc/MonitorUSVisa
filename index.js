@@ -54,7 +54,6 @@ if (process.env.TELEGRAM_KEY) {
     });
   })
 
-
   const getLastDates = (cookie, limit = 5) => (id) => new Promise((resolve, reject) => {
     request({
       'method': 'GET',
